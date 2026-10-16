@@ -1,0 +1,341 @@
+package bloodbank;
+
+import java.sql.*;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * BloodStock class manages blood inventory with different blood groups
+ * Handles all stock-related database operations
+ */
+public class BloodStock {
+    
+	 private String repeatChar(char c, int count) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    // Private member variables (Encapsulation)
+    private String bloodGroup;
+    private int availableUnits;
+    
+    // Static variable to hold all blood stock data
+    private static Map<String, Integer> stockData = new HashMap<>();
+    
+    // Constructors
+    public BloodStock() {}
+    
+    public BloodStock(String bloodGroup, int availableUnits) {
+        this.bloodGroup = bloodGroup;
+        this.availableUnits = availableUnits;
+    }
+    
+    // Getter and Setter methods (Encapsulation)
+    public String getBloodGroup() { return bloodGroup; }
+    public void setBloodGroup(String bloodGroup) { this.bloodGroup = bloodGroup; }
+    
+    public int getAvailableUnits() { return availableUnits; }
+    public void setAvailableUnits(int availableUnits) { this.availableUnits = availableUnits; }
+    
+    /**
+     * Load all blood stock data from database
+     * @return Map containing blood group as key and available units as value
+     */
+    public static Map<String, Integer> loadBloodStock() {
+        stockData.clear();
+        String sql = "SELECT BloodGroup, AvailableUnits FROM BloodStock ORDER BY BloodGroup";
+        
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            
+            while (rs.next()) {
+                String bloodGroup = rs.getString("BloodGroup");
+                int units = rs.getInt("AvailableUnits");
+                stockData.put(bloodGroup, units);
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error loading blood stock: " + e.getMessage());
+        }
+        
+        return stockData;
+    }
+    
+    /**
+     * Display current blood stock in formatted table
+     */
+    public static void displayBloodStock() {
+        Map<String, Integer> stock = loadBloodStock();
+         BloodStock bs = new BloodStock();
+        System.out.println(bs.repeatChar('=', 80));
+        System.out.println("           CURRENT BLOOD STOCK");
+        System.out.println(bs.repeatChar('=', 50));
+        System.out.printf("%-12s | %-15s | %-10s%n", "Blood Group", "Available Units", "Status");
+        System.out.println(bs.repeatChar('-', 50));
+        
+        int totalUnits = 0;
+        for (Map.Entry<String, Integer> entry : stock.entrySet()) {
+            String bloodGroup = entry.getKey();
+            int units = entry.getValue();
+            String status = getStockStatus(units);
+            
+            System.out.printf("%-12s | %-15d | %-10s%n", bloodGroup, units, status);
+            totalUnits += units;
+        }
+        
+        System.out.println(bs.repeatChar('-', 50));
+        System.out.printf("%-12s | %-15d | %-10s%n", "TOTAL", totalUnits, "");
+        System.out.println(bs.repeatChar('=', 50));
+    }
+    
+    /**
+     * Get stock status based on available units
+     * @param units Number of available units
+     * @return Status string (Critical, Low, Good, Excellent)
+     */
+    private static String getStockStatus(int units) {
+        if (units == 0) return "Critical";
+        else if (units <= 3) return "Low";
+        else if (units <= 10) return "Good";
+        else return "Excellent";
+    }
+    
+    /**
+     * Update blood stock for specific blood group
+     * @param bloodGroup Blood group to update
+     * @param units New unit count
+     * @return true if successful, false otherwise
+     */
+    public static boolean updateBloodStock(String bloodGroup, int units) {
+        if (units < 0) {
+            System.out.println("Units cannot be negative!");
+            return false;
+        }
+        
+        String sql = "UPDATE BloodStock SET AvailableUnits = ? WHERE BloodGroup = ?";
+        
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            
+            pstmt.setInt(1, units);
+            pstmt.setString(2, bloodGroup);
+            
+            int rowsAffected = pstmt.executeUpdate();
+            
+            if (rowsAffected > 0) {
+                System.out.println("Blood stock updated successfully!");
+                System.out.println("Blood Group: " + bloodGroup + " - New Units: " + units);
+                return true;
+            } else {
+                System.out.println("Invalid blood group: " + bloodGroup);
+                return false;
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error updating blood stock: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Add units to existing stock
+     * @param bloodGroup Blood group to add units to
+     * @param additionalUnits Units to add
+     * @return true if successful, false otherwise
+     */
+    public static boolean addUnitsToStock(String bloodGroup, int additionalUnits) {
+        if (additionalUnits <= 0) {
+            System.out.println("Additional units must be positive!");
+            return false;
+        }
+        
+        String sql = "UPDATE BloodStock SET AvailableUnits = AvailableUnits + ? WHERE BloodGroup = ?";
+        
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            
+            pstmt.setInt(1, additionalUnits);
+            pstmt.setString(2, bloodGroup);
+            
+            int rowsAffected = pstmt.executeUpdate();
+            
+            if (rowsAffected > 0) {
+                System.out.println("Added " + additionalUnits + " units to " + bloodGroup + " stock");
+                return true;
+            } else {
+                System.out.println("Invalid blood group: " + bloodGroup);
+                return false;
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error adding units to stock: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Remove units from existing stock
+     * @param bloodGroup Blood group to remove units from
+     * @param unitsToRemove Units to remove
+     * @return true if successful, false otherwise
+     */
+    public static boolean removeUnitsFromStock(String bloodGroup, int unitsToRemove) {
+        if (unitsToRemove <= 0) {
+            System.out.println("Units to remove must be positive!");
+            return false;
+        }
+        
+        // First check if enough units are available
+        int currentUnits = getAvailableUnits(bloodGroup);
+        if (currentUnits < unitsToRemove) {
+            System.out.println("Insufficient units available. Current: " + currentUnits + ", Requested: " + unitsToRemove);
+            return false;
+        }
+        
+        String sql = "UPDATE BloodStock SET AvailableUnits = AvailableUnits - ? WHERE BloodGroup = ?";
+        
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            
+            pstmt.setInt(1, unitsToRemove);
+            pstmt.setString(2, bloodGroup);
+            
+            int rowsAffected = pstmt.executeUpdate();
+            
+            if (rowsAffected > 0) {
+                System.out.println("Removed " + unitsToRemove + " units from " + bloodGroup + " stock");
+                return true;
+            } else {
+                System.out.println("Invalid blood group: " + bloodGroup);
+                return false;
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error removing units from stock: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Get available units for specific blood group
+     * @param bloodGroup Blood group to check
+     * @return Number of available units
+     */
+    public static int getAvailableUnits(String bloodGroup) {
+        String sql = "SELECT AvailableUnits FROM BloodStock WHERE BloodGroup = ?";
+        
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            
+            pstmt.setString(1, bloodGroup);
+            ResultSet rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                return rs.getInt("AvailableUnits");
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error getting available units: " + e.getMessage());
+        }
+        
+        return 0; // Return 0 if not found or error
+    }
+    
+    /**
+     * Get low stock alerts (blood groups with less than or equal to 3 units)
+     */
+    public static void showLowStockAlerts() {
+		BloodStock bs = new BloodStock();
+        String sql = "SELECT BloodGroup, AvailableUnits FROM BloodStock WHERE AvailableUnits <= 3 ORDER BY AvailableUnits";
+        
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            
+             System.out.println("\n" + bs.repeatChar('!', 50));
+            System.out.println("           LOW STOCK ALERTS");
+            System.out.println(bs.repeatChar('!', 50));
+
+            
+            boolean hasLowStock = false;
+            while (rs.next()) {
+                String bloodGroup = rs.getString("BloodGroup");
+                int units = rs.getInt("AvailableUnits");
+                
+                System.out.printf("⚠️  %s: %d units %s%n", 
+                    bloodGroup, units, units == 0 ? "(CRITICAL - OUT OF STOCK)" : "(LOW)");
+                hasLowStock = true;
+            }
+            
+            if (!hasLowStock) {
+                System.out.println("✅ All blood groups have adequate stock!");
+            }
+            
+           System.out.println(bs.repeatChar('!', 50));
+            
+        } catch (SQLException e) {
+            System.err.println("Error checking low stock: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Get total blood units across all groups
+     * @return Total units in stock
+     */
+    public static int getTotalUnits() {
+        String sql = "SELECT SUM(AvailableUnits) as Total FROM BloodStock";
+        
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            
+            if (rs.next()) {
+                return rs.getInt("Total");
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error getting total units: " + e.getMessage());
+        }
+        
+        return 0;
+    }
+    
+    /**
+     * Initialize blood stock table with all blood groups if not exists
+     */
+    public static void initializeBloodStock() {
+        String[] bloodGroups = {"A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"};
+        
+        for (String bloodGroup : bloodGroups) {
+            String checkSql = "SELECT COUNT(*) FROM BloodStock WHERE BloodGroup = ?";
+            String insertSql = "INSERT INTO BloodStock (BloodGroup, AvailableUnits) VALUES (?, 0)";
+            
+            try (Connection conn = DatabaseConnection.getConnection();
+                 PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
+                
+                checkStmt.setString(1, bloodGroup);
+                ResultSet rs = checkStmt.executeQuery();
+                
+                if (rs.next() && rs.getInt(1) == 0) {
+                    // Blood group doesn't exist, insert it
+                    try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                        insertStmt.setString(1, bloodGroup);
+                        insertStmt.executeUpdate();
+                    }
+                }
+                
+            } catch (SQLException e) {
+                System.err.println("Error initializing blood stock: " + e.getMessage());
+            }
+        }
+    }
+    
+    @Override
+    public String toString() {
+        return String.format("BloodStock{BloodGroup='%s', AvailableUnits=%d}", bloodGroup, availableUnits);
+    }
+}
